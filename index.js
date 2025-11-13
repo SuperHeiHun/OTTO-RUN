@@ -4,6 +4,22 @@
 // extract from chromium source code by @liuwayong
 (function () {
     'use strict';
+    
+    // 音频文件配置 - 放在 use strict 之后，Runner 定义之前
+    var SOUND_FILES = {
+        BUTTON_PRESS: [
+            'assets/sound/press1.wav',
+            'assets/sound/press2.wav', 
+            'assets/sound/press3.wav'
+        ],
+        HIT: [
+            'assets/sound/hit1.wav',
+            'assets/sound/hit2.wav',
+            'assets/sound/hit3.wav'
+        ],
+        SCORE: ['assets/sound/score.wav']
+    };
+
     /**
      * T-Rex runner.
      * @param {string} outerContainerId Outer containing element id.
@@ -54,9 +70,13 @@
 
         this.playCount = 0;
 
-        // Sound FX.
-        this.audioBuffer = null;
-        this.soundFx = {};
+        // Sound FX - 修改为对象数组来存储多个音频
+        this.audioBuffers = {
+            BUTTON_PRESS: [],
+            HIT: [],
+            SCORE: []
+        };
+        this.soundFx = this.audioBuffers; // 保持向后兼容
 
         // Global web audio context for playing sounds.
         this.audioContext = null;
@@ -307,25 +327,108 @@
         },
 
         /**
-         * Load and decode base 64 encoded sounds.
+         * Load sounds from local files.
          */
         loadSounds: function () {
             if (!IS_IOS) {
                 this.audioContext = new AudioContext();
+                
+                // 加载所有音频文件
+                var soundTypes = Object.keys(SOUND_FILES);
+                var soundsToLoad = 0;
+                var soundsLoaded = 0;
+                
+                // 计算需要加载的总音频数量
+                soundTypes.forEach(function(type) {
+                    soundsToLoad += SOUND_FILES[type].length;
+                });
 
-                var resourceTemplate =
-                    document.getElementById(this.config.RESOURCE_TEMPLATE_ID).content;
+                var onAllSoundsLoaded = function() {
+                    soundsLoaded++;
+                    if (soundsLoaded === soundsToLoad) {
+                        console.log('All sounds loaded successfully');
+                    }
+                };
 
-                for (var sound in Runner.sounds) {
-                    var soundSrc =
-                        resourceTemplate.getElementById(Runner.sounds[sound]).src;
-                    soundSrc = soundSrc.substr(soundSrc.indexOf(',') + 1);
-                    var buffer = decodeBase64ToArrayBuffer(soundSrc);
+                // 加载每种类型的音频
+                var self = this;
+                soundTypes.forEach(function(type) {
+                    SOUND_FILES[type].forEach(function(soundPath, index) {
+                        self.loadSoundFile(soundPath, type, index, onAllSoundsLoaded);
+                    });
+                });
+            }
+        },
 
-                    // Async, so no guarantee of order in array.
-                    this.audioContext.decodeAudioData(buffer, function (index, audioData) {
-                        this.soundFx[index] = audioData;
-                    }.bind(this, sound));
+        /**
+         * Load individual sound file
+         * @param {string} filePath Path to the sound file
+         * @param {string} type Sound type (BUTTON_PRESS, HIT, SCORE)
+         * @param {number} index Index in the sound array
+         * @param {function} callback Callback when loaded
+         */
+        loadSoundFile: function(filePath, type, index, callback) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', filePath, true);
+            xhr.responseType = 'arraybuffer';
+            var self = this;
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    self.audioContext.decodeAudioData(xhr.response, 
+                        function(buffer) {
+                            if (!self.audioBuffers[type][index]) {
+                                self.audioBuffers[type][index] = buffer;
+                            }
+                            callback();
+                        },
+                        function(error) {
+                            console.error('Error decoding audio data for', filePath, error);
+                            callback();
+                        }
+                    );
+                } else {
+                    console.error('Failed to load sound:', filePath, 'Status:', xhr.status);
+                    callback();
+                }
+            };
+            
+            xhr.onerror = function() {
+                console.error('Error loading sound:', filePath);
+                callback();
+            };
+            
+            xhr.send();
+        },
+
+        /**
+         * Play a sound.
+         * @param {Array|AudioBuffer} soundBuffers Array of sound buffers or single buffer
+         */
+        playSound: function (soundBuffers) {
+            if (soundBuffers && this.audioContext) {
+                try {
+                    // 如果是数组，随机选择一个音频
+                    var bufferToPlay;
+                    if (Array.isArray(soundBuffers)) {
+                        var availableBuffers = soundBuffers.filter(function(b) { return b; });
+                        if (availableBuffers.length === 0) return;
+                        
+                        // 随机选择一个可用的音频缓冲区
+                        var randomIndex = Math.floor(Math.random() * availableBuffers.length);
+                        bufferToPlay = availableBuffers[randomIndex];
+                    } else {
+                        bufferToPlay = soundBuffers;
+                    }
+                    
+                    if (bufferToPlay) {
+                        var sourceNode = this.audioContext.createBufferSource();
+                        sourceNode.buffer = bufferToPlay;
+                        sourceNode.connect(this.audioContext.destination);
+                        sourceNode.start(0);
+                    }
+                } catch (error) {
+                    console.error('Error playing sound:', error);
                 }
             }
         },
@@ -577,7 +680,7 @@
                     Math.ceil(this.distanceRan));
 
                 if (playAchievementSound) {
-                    this.playSound(this.soundFx.SCORE);
+                    this.playSound(this.audioBuffers.SCORE);
                 }
 
                 // Night mode.
@@ -690,7 +793,8 @@
                     }
                     //  Play sound effect and jump on starting the game for the first time.
                     if (!this.tRex.jumping && !this.tRex.ducking) {
-                        this.playSound(this.soundFx.BUTTON_PRESS);
+                        // 播放随机的按键音效
+                        this.playSound(this.audioBuffers.BUTTON_PRESS);
                         this.tRex.startJump(this.currentSpeed);
                     }
                 }
@@ -778,7 +882,8 @@
          * Game over state.
          */
         gameOver: function () {
-            this.playSound(this.soundFx.HIT);
+            // 播放随机的受伤音效
+            this.playSound(this.audioBuffers.HIT);
             vibrate(200);
 
             this.stop();
@@ -837,7 +942,7 @@
                 this.distanceMeter.reset(this.highestScore);
                 this.horizon.reset();
                 this.tRex.reset();
-                this.playSound(this.soundFx.BUTTON_PRESS);
+                this.playSound(this.audioBuffers.BUTTON_PRESS);
                 this.invert(true);
                 this.update();
             }
@@ -846,7 +951,7 @@
         /**
          * Hides offline messaging for a fullscreen game only experience.
          */
-        setArcadeMode() {
+        setArcadeMode: function() {
             document.body.classList.add(Runner.classes.ARCADE_MODE);
             this.setArcadeModeContainerScale();
         },
@@ -854,20 +959,20 @@
         /**
          * Sets the scaling for arcade mode.
          */
-        setArcadeModeContainerScale() {
-            const windowHeight = window.innerHeight;
-            const scaleHeight = windowHeight / this.dimensions.HEIGHT;
-            const scaleWidth = window.innerWidth / this.dimensions.WIDTH;
-            const scale = Math.max(1, Math.min(scaleHeight, scaleWidth));
-            const scaledCanvasHeight = this.dimensions.HEIGHT * scale;
+        setArcadeModeContainerScale: function() {
+            var windowHeight = window.innerHeight;
+            var scaleHeight = windowHeight / this.dimensions.HEIGHT;
+            var scaleWidth = window.innerWidth / this.dimensions.WIDTH;
+            var scale = Math.max(1, Math.min(scaleHeight, scaleWidth));
+            var scaledCanvasHeight = this.dimensions.HEIGHT * scale;
             // Positions the game container at 10% of the available vertical window
             // height minus the game container height.
-            const translateY = Math.ceil(Math.max(0, (windowHeight - scaledCanvasHeight -
+            var translateY = Math.ceil(Math.max(0, (windowHeight - scaledCanvasHeight -
                                                       Runner.config.ARCADE_MODE_INITIAL_TOP_POSITION) *
                                                   Runner.config.ARCADE_MODE_TOP_POSITION_PERCENT)) *
                   window.devicePixelRatio;
 
-            const cssScale = scale;
+            var cssScale = scale;
             this.containerEl.style.transform =
                 'scale(' + cssScale + ') translateY(' + translateY + 'px)';
         },
@@ -882,19 +987,6 @@
             } else if (!this.crashed) {
                 this.tRex.reset();
                 this.play();
-            }
-        },
-
-        /**
-         * Play a sound.
-         * @param {SoundBuffer} soundBuffer
-         */
-        playSound: function (soundBuffer) {
-            if (soundBuffer) {
-                var sourceNode = this.audioContext.createBufferSource();
-                sourceNode.buffer = soundBuffer;
-                sourceNode.connect(this.audioContext.destination);
-                sourceNode.start(0);
             }
         },
 
