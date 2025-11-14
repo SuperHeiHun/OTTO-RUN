@@ -5,7 +5,7 @@
 (function () {
     'use strict';
     
-    // 音频文件配置 - 放在 use strict 之后，Runner 定义之前
+    // 你可以在这里添加音频 分别为 点击 游戏结束 得分
     var SOUND_FILES = {
         BUTTON_PRESS: [
             'assets/sound/press1.wav',
