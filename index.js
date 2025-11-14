@@ -17,7 +17,10 @@
             'assets/sound/hit2.wav',
             'assets/sound/hit3.wav'
         ],
-        SCORE: ['assets/sound/score.wav']
+        SCORE: [
+            'assets/sound/score1.wav',
+            'assets/sound/score2.wav'
+        ]
     };
 
     /**
